@@ -56,6 +56,20 @@ class Config:
     DEFAULT_HDFS_USER_DIR = "/user/chethan"
     MAX_PREVIEW_BYTES = 1024 * 1024  # 1 MB preview ceiling
     MAX_PREVIEW_LINES = 500
+    MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB file upload limit
+    TEMP_STAGING_DIR = BASE_DIR / ".temp_staging"
+
+    # Protected Core Paths - immutable against deletion or overwrite
+    PROTECTED_HDFS_PATHS = {
+        "/",
+        "/tmp",
+        "/user",
+        "/user/chethan",
+        "/user/chethan/sample.txt",
+        "/user/chethan/wordcount_output",
+        "/user/chethan/wordcount_output/_SUCCESS",
+        "/user/chethan/wordcount_output/part-r-00000",
+    }
 
     TESTING = False
     DEBUG = False

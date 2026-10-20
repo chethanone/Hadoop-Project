@@ -44,6 +44,21 @@ class HadoopRedirectError(HadoopError):
     pass
 
 
+class ProtectedPathError(HadoopError):
+    """Raised when an operation attempts to modify or delete a protected system path."""
+    pass
+
+
+class HadoopItemExistsError(HadoopError):
+    """Raised when an item already exists in HDFS and overwrite is False."""
+    pass
+
+
+class HadoopNotFoundError(HadoopError):
+    """Raised when a requested HDFS item is not found."""
+    pass
+
+
 class HadoopAdapter:
     """
     Secure adapter for invoking Hadoop operations in WSL and querying
@@ -723,3 +738,270 @@ class HadoopAdapter:
             })
 
         return results
+
+    # -------------------------------------------------------------------------
+    # HDFS Mutation & Management Operations (Phase 3)
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def win_to_wsl_path(win_path: str) -> str:
+        """Translates a Windows filesystem path to WSL /mnt/<drive>/... format."""
+        s = str(win_path).replace("\\", "/")
+        match = re.match(r"^([a-zA-Z]):/(.*)$", s)
+        if match:
+            drive = match.group(1).lower()
+            rest = match.group(2)
+            return f"/mnt/{drive}/{rest}"
+        return s
+
+    def check_protected_path(self, hdfs_path: str, operation: str = "modify") -> None:
+        """
+        Guards critical cluster paths against deletion, overwrite, or modification.
+        Also blocks modifying ancestor paths that would affect protected assets.
+        """
+        sanitized = self.sanitize_hdfs_path(hdfs_path)
+        protected = getattr(self.config, "PROTECTED_HDFS_PATHS", set())
+
+        # Direct protected path match
+        if sanitized in protected:
+            raise ProtectedPathError(
+                f"Cannot {operation} protected system path '{sanitized}'. This path is essential to the cluster."
+            )
+
+        # Ancestor check (e.g. attempting to delete /user or /user/chethan)
+        for p in protected:
+            if p.startswith(sanitized.rstrip("/") + "/"):
+                raise ProtectedPathError(
+                    f"Cannot {operation} '{sanitized}' because it contains protected path '{p}'."
+                )
+
+    def exists(self, hdfs_path: str) -> bool:
+        """Checks if an item exists in HDFS."""
+        sanitized = self.sanitize_hdfs_path(hdfs_path)
+        code, _, _ = self.run_wsl_command([
+            self.config.HDFS_BIN_WSL, "dfs", "-test", "-e", sanitized
+        ], timeout=8)
+        return code == 0
+
+    def is_directory(self, hdfs_path: str) -> bool:
+        """Checks if an HDFS path is a directory."""
+        sanitized = self.sanitize_hdfs_path(hdfs_path)
+        code, _, _ = self.run_wsl_command([
+            self.config.HDFS_BIN_WSL, "dfs", "-test", "-d", sanitized
+        ], timeout=8)
+        return code == 0
+
+    def mkdir(self, hdfs_path: str) -> Dict[str, Any]:
+        """Creates a directory in HDFS with parent creation."""
+        sanitized = self.sanitize_hdfs_path(hdfs_path)
+        self.check_protected_path(sanitized, operation="create directory at")
+
+        if self.exists(sanitized):
+            raise HadoopItemExistsError(f"Directory already exists in HDFS: {sanitized}")
+
+        code, stdout, stderr = self.run_wsl_command([
+            self.config.HDFS_BIN_WSL, "dfs", "-mkdir", "-p", sanitized
+        ], timeout=15)
+
+        if code != 0:
+            raise HadoopExecutionError(
+                f"Failed to create directory: {stderr.strip() or stdout.strip()}",
+                exit_code=code, stdout=stdout, stderr=stderr
+            )
+
+        return {
+            "status": "success",
+            "path": sanitized,
+            "message": f"Directory '{sanitized}' created successfully."
+        }
+
+    def put_file(self, local_win_path: str, hdfs_target_path: str, overwrite: bool = False) -> Dict[str, Any]:
+        """
+        Uploads a file from Windows host into HDFS.
+        Converts the Windows path to WSL DrvFs mount path for zero-copy staging.
+        """
+        sanitized_target = self.sanitize_hdfs_path(hdfs_target_path)
+        self.check_protected_path(sanitized_target, operation="overwrite" if overwrite else "upload to")
+
+        if not os.path.exists(local_win_path):
+            raise FileNotFoundError(f"Local staging file does not exist: {local_win_path}")
+
+        file_size = os.path.getsize(local_win_path)
+        target_exists = self.exists(sanitized_target)
+
+        if target_exists and not overwrite:
+            raise HadoopItemExistsError(f"File already exists at '{sanitized_target}'. Enable overwrite to replace.")
+
+        wsl_local = self.win_to_wsl_path(local_win_path)
+        cmd = [self.config.HDFS_BIN_WSL, "dfs", "-put"]
+        if overwrite:
+            cmd.append("-f")
+        cmd.extend([wsl_local, sanitized_target])
+
+        code, stdout, stderr = self.run_wsl_command(cmd, timeout=30)
+        if code != 0:
+            raise HadoopExecutionError(
+                f"Failed to upload file to HDFS: {stderr.strip() or stdout.strip()}",
+                exit_code=code, stdout=stdout, stderr=stderr
+            )
+
+        return {
+            "status": "success",
+            "path": sanitized_target,
+            "bytes_uploaded": file_size,
+            "message": f"File uploaded successfully to '{sanitized_target}'."
+        }
+
+    def copy_item(self, source_path: str, dest_path: str, overwrite: bool = False) -> Dict[str, Any]:
+        """Copies a file or directory within HDFS."""
+        sanitized_src = self.sanitize_hdfs_path(source_path)
+        sanitized_dest = self.sanitize_hdfs_path(dest_path)
+        self.check_protected_path(sanitized_dest, operation="copy to")
+
+        if not self.exists(sanitized_src):
+            raise HadoopNotFoundError(f"Source item not found: {sanitized_src}")
+
+        dest_exists = self.exists(sanitized_dest)
+        if dest_exists and not overwrite:
+            raise HadoopItemExistsError(f"Destination path already exists: {sanitized_dest}")
+
+        cmd = [self.config.HDFS_BIN_WSL, "dfs", "-cp"]
+        if overwrite:
+            cmd.append("-f")
+        cmd.extend([sanitized_src, sanitized_dest])
+
+        code, stdout, stderr = self.run_wsl_command(cmd, timeout=25)
+        if code != 0:
+            raise HadoopExecutionError(
+                f"Copy operation failed: {stderr.strip() or stdout.strip()}",
+                exit_code=code, stdout=stdout, stderr=stderr
+            )
+
+        return {
+            "status": "success",
+            "source": sanitized_src,
+            "dest": sanitized_dest,
+            "message": f"Copied '{sanitized_src}' to '{sanitized_dest}'."
+        }
+
+    def rename_item(self, source_path: str, dest_path: str) -> Dict[str, Any]:
+        """Renames or moves an item within HDFS."""
+        sanitized_src = self.sanitize_hdfs_path(source_path)
+        sanitized_dest = self.sanitize_hdfs_path(dest_path)
+        self.check_protected_path(sanitized_src, operation="rename")
+        self.check_protected_path(sanitized_dest, operation="rename destination")
+
+        if not self.exists(sanitized_src):
+            raise HadoopNotFoundError(f"Source item not found: {sanitized_src}")
+
+        if self.exists(sanitized_dest):
+            raise HadoopItemExistsError(f"Destination path already exists: {sanitized_dest}")
+
+        code, stdout, stderr = self.run_wsl_command([
+            self.config.HDFS_BIN_WSL, "dfs", "-mv", sanitized_src, sanitized_dest
+        ], timeout=15)
+
+        if code != 0:
+            raise HadoopExecutionError(
+                f"Rename operation failed: {stderr.strip() or stdout.strip()}",
+                exit_code=code, stdout=stdout, stderr=stderr
+            )
+
+        return {
+            "status": "success",
+            "source": sanitized_src,
+            "dest": sanitized_dest,
+            "message": f"Renamed '{sanitized_src}' to '{sanitized_dest}'."
+        }
+
+    def delete_item(
+        self,
+        hdfs_path: str,
+        recursive: bool = False,
+        confirmation_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Deletes a file or directory from HDFS with safety verification.
+        Refuses deletion of protected system paths.
+        Requires explicit confirmation matching the item name for recursive directory deletions.
+        """
+        sanitized = self.sanitize_hdfs_path(hdfs_path)
+        self.check_protected_path(sanitized, operation="delete")
+
+        if not self.exists(sanitized):
+            raise HadoopNotFoundError(f"Item not found in HDFS: {sanitized}")
+
+        is_dir = self.is_directory(sanitized)
+        item_name = os.path.basename(sanitized)
+
+        if is_dir:
+            listing = self.list_hdfs_directory(sanitized)
+            entries = listing.get("entries", [])
+            if entries and not recursive:
+                raise HadoopExecutionError(
+                    f"Directory '{sanitized}' is not empty ({len(entries)} items). Recursive deletion must be explicitly requested."
+                )
+
+            if recursive and entries:
+                # Require confirmation token matching the folder name
+                if not confirmation_name or confirmation_name.strip() != item_name:
+                    raise HadoopExecutionError(
+                        f"Confirmation name mismatch. Type '{item_name}' exactly to confirm recursive deletion."
+                    )
+
+        cmd = [self.config.HDFS_BIN_WSL, "dfs", "-rm"]
+        if recursive or is_dir:
+            cmd.append("-r")
+        cmd.append(sanitized)
+
+        code, stdout, stderr = self.run_wsl_command(cmd, timeout=20)
+        if code != 0:
+            raise HadoopExecutionError(
+                f"Delete operation failed: {stderr.strip() or stdout.strip()}",
+                exit_code=code, stdout=stdout, stderr=stderr
+            )
+
+        return {
+            "status": "success",
+            "path": sanitized,
+            "message": f"Successfully deleted '{sanitized}'."
+        }
+
+    def stream_file_content(self, hdfs_path: str, chunk_size: int = 65536):
+        """
+        Generator streaming binary content of an HDFS file.
+        Attempts WebHDFS with normalized redirect, falling back to streaming CLI.
+        """
+        sanitized = self.sanitize_hdfs_path(hdfs_path)
+        if self.is_directory(sanitized):
+            raise HadoopExecutionError(f"Cannot download directory as a file stream: {sanitized}")
+
+        # 1. WebHDFS OPEN with redirect rewrite
+        webhdfs_url = f"{self.config.NAMENODE_HTTP_URL}/webhdfs/v1{sanitized}?op=OPEN"
+        try:
+            redirect_resp = self.session.get(webhdfs_url, allow_redirects=False, timeout=self.config.HTTP_TIMEOUT_SECONDS)
+            if redirect_resp.status_code in (301, 302, 307):
+                raw_loc = redirect_resp.headers.get("Location")
+                normalized_loc = self.validate_and_normalize_redirect_url(raw_loc)
+                with self.session.get(normalized_loc, stream=True, timeout=self.config.HTTP_TIMEOUT_SECONDS) as stream_resp:
+                    if stream_resp.status_code == 200:
+                        for chunk in stream_resp.iter_content(chunk_size=chunk_size):
+                            if chunk:
+                                yield chunk
+                        return
+        except Exception as exc:
+            logger.warning("WebHDFS stream failed (%s), falling back to CLI stream...", exc)
+
+        # 2. CLI Fallback: Safe Subprocess Streaming
+        full_command = ["wsl.exe", "-d", self.config.WSL_DISTRO, "--", self.config.HDFS_BIN_WSL, "dfs", "-cat", sanitized]
+        proc = subprocess.Popen(full_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            while True:
+                chunk = proc.stdout.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+            proc.wait(timeout=10)
+        except Exception:
+            proc.kill()
+            raise

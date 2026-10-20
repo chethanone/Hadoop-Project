@@ -6,7 +6,7 @@ Initializes the Flask app, registers blueprints, and sets up template helpers.
 from flask import Flask, render_template
 
 from .config import Config, config_by_name
-from .routes import diagnostics_bp
+from .routes import diagnostics_bp, file_manager_bp
 
 
 def format_bytes(size: int) -> str:
@@ -39,6 +39,7 @@ def create_app(config_name: str = "default") -> Flask:
 
     # Register blueprints
     app.register_blueprint(diagnostics_bp)
+    app.register_blueprint(file_manager_bp)
 
     # Global error handlers
     @app.errorhandler(404)

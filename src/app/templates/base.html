@@ -51,8 +51,8 @@
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link text-muted" href="#" title="Will be implemented in Phase 3">
-                            <i class="bi bi-folder2-open me-1"></i> File Manager <span class="badge bg-dark border border-secondary text-secondary ms-1">Phase 3</span>
+                        <a class="nav-link {% if request.endpoint == 'file_manager.file_manager_view' %}active{% endif %}" href="{{ url_for('file_manager.file_manager_view') }}">
+                            <i class="bi bi-folder2-open me-1"></i> File Manager
                         </a>
                     </li>
                     <li class="nav-item">

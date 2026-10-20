@@ -1,0 +1,734 @@
+{% extends "base.html" %}
+
+{% block title %}HDFS File Manager{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Header & Quick Nav -->
+    <div class="col-12">
+        <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
+            <div>
+                <h1 class="h3 mb-1 fw-bold">HDFS File Explorer</h1>
+                <p class="text-secondary mb-0">
+                    Real-time filesystem management for Apache Hadoop 3.5.0 on <span class="font-mono text-info">hdfs://localhost:9000</span>
+                </p>
+            </div>
+            <!-- Action Toolbar -->
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                {% if data.current_path != '/' %}
+                <a href="{{ url_for('file_manager.file_manager_view', path=data.parent_path) }}" class="btn btn-ghost btn-sm" title="Go up to parent directory">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Up Level
+                </a>
+                {% endif %}
+                <button type="button" class="btn btn-ghost btn-sm" onclick="location.reload();">
+                    <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm" data-bs-toggle="modal" data-bs-target="#newFolderModal">
+                    <i class="bi bi-folder-plus text-warning me-1"></i> New Folder
+                </button>
+                <button type="button" class="btn btn-action btn-sm" data-bs-toggle="modal" data-bs-target="#uploadModal">
+                    <i class="bi bi-cloud-arrow-up-fill me-1"></i> Upload File
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Breadcrumb & Path Bar -->
+    <div class="col-12">
+        <div class="glass-card py-2 px-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <!-- Clickable Breadcrumbs -->
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb mb-0 py-1" style="font-size: 0.95rem;">
+                        <li class="breadcrumb-item text-secondary font-mono">
+                            <i class="bi bi-hdd-network text-info me-1"></i>
+                        </li>
+                        {% for crumb in data.breadcrumbs %}
+                            {% if crumb.active %}
+                            <li class="breadcrumb-item active font-mono text-light fw-bold" aria-current="page">{{ crumb.name }}</li>
+                            {% else %}
+                            <li class="breadcrumb-item font-mono">
+                                <a href="{{ url_for('file_manager.file_manager_view', path=crumb.path) }}" class="text-info text-decoration-none hover-underline">
+                                    {{ crumb.name }}
+                                </a>
+                            </li>
+                            {% endif %}
+                        {% endfor %}
+                    </ol>
+                </nav>
+
+                <!-- Quick Jump Shortcut Pills -->
+                <div class="d-flex align-items-center gap-2 small">
+                    <span class="text-muted d-none d-md-inline">Quick:</span>
+                    <a href="{{ url_for('file_manager.file_manager_view', path='/user/chethan') }}" class="badge bg-dark border border-secondary text-secondary text-decoration-none">/user/chethan</a>
+                    <a href="{{ url_for('file_manager.file_manager_view', path='/tmp') }}" class="badge bg-dark border border-secondary text-secondary text-decoration-none">/tmp</a>
+                    <a href="{{ url_for('file_manager.file_manager_view', path='/') }}" class="badge bg-dark border border-secondary text-secondary text-decoration-none">/ (Root)</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Banner (if any) -->
+    {% if data.error %}
+    <div class="col-12">
+        <div class="alert alert-danger border-danger-subtle bg-danger-subtle text-danger-emphasis rounded-3 p-3 mb-0" role="alert">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-exclamation-octagon-fill fs-5"></i>
+                <div>
+                    <strong>Filesystem Notice:</strong> {{ data.error }}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Directory Contents Table -->
+    <div class="col-12">
+        <div class="glass-card">
+            <div class="glass-card-header">
+                <div class="glass-card-title">
+                    <i class="bi bi-folder2-open text-info"></i>
+                    <span>Directory Contents</span>
+                    <span class="badge bg-dark border border-secondary text-secondary font-mono ms-2" style="font-size: 0.75rem;">
+                        {{ data.total_count }} item(s)
+                    </span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-dark border border-secondary text-secondary font-mono">
+                        Source: {{ data.source }}
+                    </span>
+                    {% if data.is_protected %}
+                    <span class="badge bg-warning-subtle text-warning border border-warning-subtle font-mono">
+                        <i class="bi bi-shield-lock-fill me-1"></i> Protected Space
+                    </span>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if data.entries %}
+            <div class="table-responsive">
+                <table class="table-custom">
+                    <thead>
+                        <tr>
+                            <th style="min-width: 250px;">Name</th>
+                            <th>Type</th>
+                            <th>Size</th>
+                            <th>Permissions</th>
+                            <th>Owner / Group</th>
+                            <th>Last Modified</th>
+                            <th style="text-align: right; min-width: 140px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in data.entries %}
+                        <tr>
+                            <!-- Item Name -->
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    {% if item.type == 'DIRECTORY' %}
+                                    <i class="bi bi-folder-fill text-warning fs-5"></i>
+                                    <a href="{{ url_for('file_manager.file_manager_view', path=item.path) }}" class="text-light fw-semibold text-decoration-none font-mono hover-link">
+                                        {{ item.name }}
+                                    </a>
+                                    {% else %}
+                                    <i class="bi bi-file-earmark-text-fill text-info fs-5"></i>
+                                    <span class="text-light font-mono fw-normal">{{ item.name }}</span>
+                                    {% endif %}
+
+                                    {% if item.is_protected %}
+                                    <span class="badge bg-secondary-subtle text-muted border border-secondary ms-1 font-mono" style="font-size: 0.65rem;" title="Core system asset - Protected from modification">Protected</span>
+                                    {% endif %}
+                                </div>
+                            </td>
+
+                            <!-- Type -->
+                            <td>
+                                <span class="badge {% if item.type == 'DIRECTORY' %}bg-warning-subtle text-warning border border-warning-subtle{% else %}bg-info-subtle text-info border border-info-subtle{% endif %}">
+                                    {{ item.type }}
+                                </span>
+                            </td>
+
+                            <!-- Size -->
+                            <td class="font-mono text-muted">
+                                {% if item.type == 'DIRECTORY' %}
+                                &mdash;
+                                {% else %}
+                                {{ item.length|format_bytes }}
+                                {% endif %}
+                            </td>
+
+                            <!-- Permissions -->
+                            <td>
+                                <span class="badge-mono">{{ item.permission }}</span>
+                            </td>
+
+                            <!-- Owner / Group -->
+                            <td class="font-mono text-muted small">
+                                {{ item.owner }}:{{ item.group }}
+                            </td>
+
+                            <!-- Modified Date -->
+                            <td class="font-mono text-muted small">
+                                {{ item.modification_time }}
+                            </td>
+
+                            <!-- Actions -->
+                            <td style="text-align: right;">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    {% if item.type == 'FILE' %}
+                                    <!-- Preview Button -->
+                                    <button type="button" class="btn btn-ghost py-1 px-2" title="Preview file" onclick="previewHdfsFile('{{ item.path }}')">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
+                                    <!-- Download Button -->
+                                    <a href="{{ url_for('file_manager.api_download_file', path=item.path) }}" class="btn btn-ghost py-1 px-2" title="Download file">
+                                        <i class="bi bi-download"></i>
+                                    </a>
+                                    {% else %}
+                                    <!-- Open Directory -->
+                                    <a href="{{ url_for('file_manager.file_manager_view', path=item.path) }}" class="btn btn-ghost py-1 px-2" title="Open directory">
+                                        <i class="bi bi-box-arrow-in-right"></i>
+                                    </a>
+                                    {% endif %}
+
+                                    <!-- Copy Button -->
+                                    <button type="button" class="btn btn-ghost py-1 px-2" title="Copy item" onclick="openCopyModal('{{ item.path }}', '{{ data.current_path }}')">
+                                        <i class="bi bi-copy"></i>
+                                    </button>
+
+                                    <!-- Rename Button (Disabled if Protected) -->
+                                    {% if item.is_protected %}
+                                    <button type="button" class="btn btn-ghost py-1 px-2 disabled opacity-50" title="Protected system item cannot be renamed" disabled>
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    {% else %}
+                                    <button type="button" class="btn btn-ghost py-1 px-2" title="Rename item" onclick="openRenameModal('{{ item.path }}', '{{ item.name }}')">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    {% endif %}
+
+                                    <!-- Delete Button (Disabled if Protected) -->
+                                    {% if item.is_protected %}
+                                    <button type="button" class="btn btn-ghost py-1 px-2 disabled opacity-50" title="Protected system item cannot be deleted" disabled>
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                    {% else %}
+                                    <button type="button" class="btn btn-ghost py-1 px-2 text-danger" title="Delete item" onclick="openDeleteModal('{{ item.path }}', '{{ item.name }}', '{{ item.type }}')">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-5 text-muted">
+                <i class="bi bi-folder2 fs-1 text-secondary opacity-50 mb-2"></i>
+                <p class="mb-0">This directory is empty.</p>
+                <small class="text-secondary">Use the buttons above to create a folder or upload files.</small>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- Modals for HDFS Operations -->
+<!-- ========================================================================= -->
+
+<!-- 1. New Folder Modal -->
+<div class="modal fade" id="newFolderModal" tabindex="-1" aria-labelledby="newFolderModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content dark-modal">
+            <div class="modal-header dark-modal">
+                <h5 class="modal-title d-flex align-items-center gap-2" id="newFolderModalLabel">
+                    <i class="bi bi-folder-plus text-warning"></i>
+                    <span>Create New Directory</span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="newFolderForm" onsubmit="submitNewFolder(event)">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small">Target Parent Directory</label>
+                        <input type="text" class="form-control bg-dark text-light border-secondary font-mono" id="folderParentPath" value="{{ data.current_path }}" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label for="newFolderName" class="form-label text-secondary small">Directory Name</label>
+                        <input type="text" class="form-control bg-dark text-light border-secondary font-mono" id="newFolderName" placeholder="e.g., datasets_raw" required pattern="[a-zA-Z0-9_\-\.]+">
+                        <div class="form-text text-muted small">Only alphanumeric characters, dots, underscores, and hyphens.</div>
+                    </div>
+                    <div id="mkdirAlert" class="alert alert-danger d-none font-mono small py-2"></div>
+                </div>
+                <div class="modal-footer dark-modal">
+                    <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-action" id="mkdirSubmitBtn">
+                        <span id="mkdirBtnSpinner" class="spinner-border spinner-border-sm me-1 d-none" role="status"></span>
+                        Create Directory
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 2. Upload File Modal -->
+<div class="modal fade" id="uploadModal" tabindex="-1" aria-labelledby="uploadModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content dark-modal">
+            <div class="modal-header dark-modal">
+                <h5 class="modal-title d-flex align-items-center gap-2" id="uploadModalLabel">
+                    <i class="bi bi-cloud-arrow-up text-info"></i>
+                    <span>Upload File to HDFS</span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="uploadForm" onsubmit="submitUpload(event)">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small">Destination Directory</label>
+                        <input type="text" class="form-control bg-dark text-light border-secondary font-mono" id="uploadTargetDir" value="{{ data.current_path }}" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label for="uploadFileInput" class="form-label text-secondary small">Select Local File</label>
+                        <input type="file" class="form-control bg-dark text-light border-secondary" id="uploadFileInput" required>
+                        <div class="form-text text-muted small">File will be safely staged on Windows host and transferred via WSL into HDFS.</div>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="uploadOverwrite">
+                        <label class="form-check-label text-secondary small" for="uploadOverwrite">
+                            Overwrite file if it already exists in target directory
+                        </label>
+                    </div>
+                    <div id="uploadAlert" class="alert alert-danger d-none font-mono small py-2"></div>
+                </div>
+                <div class="modal-footer dark-modal">
+                    <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-action" id="uploadSubmitBtn">
+                        <span id="uploadBtnSpinner" class="spinner-border spinner-border-sm me-1 d-none" role="status"></span>
+                        Start Upload
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 3. Copy Item Modal -->
+<div class="modal fade" id="copyModal" tabindex="-1" aria-labelledby="copyModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content dark-modal">
+            <div class="modal-header dark-modal">
+                <h5 class="modal-title d-flex align-items-center gap-2" id="copyModalLabel">
+                    <i class="bi bi-copy text-info"></i>
+                    <span>Copy Item</span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="copyForm" onsubmit="submitCopy(event)">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small">Source Path</label>
+                        <input type="text" class="form-control bg-dark text-light border-secondary font-mono" id="copySourcePath" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label for="copyDestDir" class="form-label text-secondary small">Destination Directory</label>
+                        <input type="text" class="form-control bg-dark text-light border-secondary font-mono" id="copyDestDir" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="copyNewName" class="form-label text-secondary small">New Name (Optional)</label>
+                        <input type="text" class="form-control bg-dark text-light border-secondary font-mono" id="copyNewName" placeholder="Leave blank to keep same name">
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="copyOverwrite">
+                        <label class="form-check-label text-secondary small" for="copyOverwrite">
+                            Overwrite destination if it exists
+                        </label>
+                    </div>
+                    <div id="copyAlert" class="alert alert-danger d-none font-mono small py-2"></div>
+                </div>
+                <div class="modal-footer dark-modal">
+                    <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-action" id="copySubmitBtn">
+                        <span id="copyBtnSpinner" class="spinner-border spinner-border-sm me-1 d-none" role="status"></span>
+                        Execute Copy
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 4. Rename Item Modal -->
+<div class="modal fade" id="renameModal" tabindex="-1" aria-labelledby="renameModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content dark-modal">
+            <div class="modal-header dark-modal">
+                <h5 class="modal-title d-flex align-items-center gap-2" id="renameModalLabel">
+                    <i class="bi bi-pencil text-warning"></i>
+                    <span>Rename / Move Item</span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="renameForm" onsubmit="submitRename(event)">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small">Current Path</label>
+                        <input type="text" class="form-control bg-dark text-light border-secondary font-mono" id="renameSourcePath" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label for="renameNewName" class="form-label text-secondary small">New Name</label>
+                        <input type="text" class="form-control bg-dark text-light border-secondary font-mono" id="renameNewName" required pattern="[a-zA-Z0-9_\-\.]+">
+                    </div>
+                    <div id="renameAlert" class="alert alert-danger d-none font-mono small py-2"></div>
+                </div>
+                <div class="modal-footer dark-modal">
+                    <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-action" id="renameSubmitBtn">
+                        <span id="renameBtnSpinner" class="spinner-border spinner-border-sm me-1 d-none" role="status"></span>
+                        Save Rename
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 5. Delete Item Modal with Explicit Confirmation -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content dark-modal border-danger">
+            <div class="modal-header dark-modal border-danger-subtle">
+                <h5 class="modal-title d-flex align-items-center gap-2 text-danger" id="deleteModalLabel">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <span>Confirm Item Deletion</span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="deleteForm" onsubmit="submitDelete(event)">
+                <div class="modal-body p-4">
+                    <p class="text-secondary mb-3">
+                        Are you sure you want to permanently delete this item from HDFS?
+                    </p>
+                    <div class="p-3 rounded bg-black bg-opacity-40 border border-secondary border-opacity-25 font-mono small mb-3">
+                        <div class="text-muted">Target Path:</div>
+                        <div class="text-danger fw-bold text-break" id="deleteTargetPath"></div>
+                        <div class="text-muted mt-2">Item Type: <span class="badge bg-secondary" id="deleteTargetType"></span></div>
+                    </div>
+
+                    <!-- Directory recursive confirmation prompt -->
+                    <div id="deleteDirectoryConfirmBlock" class="d-none">
+                        <div class="alert alert-danger py-2 small mb-3">
+                            <i class="bi bi-shield-exclamation me-1"></i>
+                            <strong>Safety Gate:</strong> Deleting a directory is recursive. To confirm, please type the exact directory name below:
+                        </div>
+                        <label for="deleteConfirmInput" class="form-label text-secondary small">
+                            Type <code class="text-danger" id="deleteExpectedName"></code> to enable deletion:
+                        </label>
+                        <input type="text" class="form-control bg-dark text-light border-danger font-mono" id="deleteConfirmInput" placeholder="Type directory name here" oninput="checkDeleteConfirmation()">
+                    </div>
+
+                    <div id="deleteAlert" class="alert alert-danger d-none font-mono small py-2 mt-2"></div>
+                </div>
+                <div class="modal-footer dark-modal border-danger-subtle">
+                    <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger" id="deleteSubmitBtn">
+                        <span id="deleteBtnSpinner" class="spinner-border spinner-border-sm me-1 d-none" role="status"></span>
+                        Permanently Delete
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 6. File Preview Modal -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content dark-modal">
+            <div class="modal-header dark-modal">
+                <h5 class="modal-title d-flex align-items-center gap-2" id="previewModalLabel">
+                    <i class="bi bi-file-earmark-text text-info"></i>
+                    <span>Preview: <span id="previewFilePath" class="font-mono text-info fw-normal"></span></span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div id="previewSpinner" class="text-center py-5">
+                    <div class="spinner-border text-info" role="status"></div>
+                    <div class="text-muted small mt-2">Streaming through WebHDFS...</div>
+                </div>
+                <div id="previewError" class="alert alert-danger d-none font-mono small"></div>
+                <div id="previewContainer" class="terminal-card d-none">
+                    <div class="terminal-header">
+                        <span class="badge bg-dark border border-secondary text-secondary font-mono" id="previewMeta"></span>
+                        <a id="previewDownloadLink" href="#" class="btn btn-ghost btn-sm py-0 px-2" title="Download this file">
+                            <i class="bi bi-download me-1"></i> Download
+                        </a>
+                    </div>
+                    <pre class="terminal-body mb-0" id="previewContent"></pre>
+                </div>
+            </div>
+            <div class="modal-footer dark-modal">
+                <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ============================================================================
+// HDFS File Manager JavaScript Interactions
+// ============================================================================
+
+let currentDeletePath = "";
+let currentDeleteName = "";
+let currentDeleteType = "";
+
+function previewHdfsFile(path) {
+    const modalEl = document.getElementById('previewModal');
+    const modal = new bootstrap.Modal(modalEl);
+
+    document.getElementById('previewFilePath').innerText = path;
+    document.getElementById('previewSpinner').classList.remove('d-none');
+    document.getElementById('previewError').classList.add('d-none');
+    document.getElementById('previewContainer').classList.add('d-none');
+    document.getElementById('previewDownloadLink').href = `/api/files/download?path=${encodeURIComponent(path)}`;
+
+    modal.show();
+
+    fetch(`/api/hdfs/preview?path=${encodeURIComponent(path)}`)
+        .then(resp => {
+            if (!resp.ok) return resp.json().then(d => { throw new Error(d.error || 'Preview failed'); });
+            return resp.json();
+        })
+        .then(data => {
+            document.getElementById('previewSpinner').classList.add('d-none');
+            document.getElementById('previewContainer').classList.remove('d-none');
+            document.getElementById('previewContent').innerText = data.content;
+            document.getElementById('previewMeta').innerText = `${data.bytes_read} bytes • ${data.line_count} lines • Source: ${data.source}`;
+        })
+        .catch(err => {
+            document.getElementById('previewSpinner').classList.add('d-none');
+            const errBox = document.getElementById('previewError');
+            errBox.classList.remove('d-none');
+            errBox.innerText = `Error: ${err.message}`;
+        });
+}
+
+function submitNewFolder(e) {
+    e.preventDefault();
+    const parentPath = document.getElementById('folderParentPath').value;
+    const folderName = document.getElementById('newFolderName').value.trim();
+    const alertBox = document.getElementById('mkdirAlert');
+    const spinner = document.getElementById('mkdirBtnSpinner');
+
+    alertBox.classList.add('d-none');
+    spinner.classList.remove('d-none');
+
+    fetch('/api/files/mkdir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parent_path: parentPath, folder_name: folderName })
+    })
+    .then(resp => resp.json().then(d => ({ ok: resp.ok, data: d })))
+    .then(({ ok, data }) => {
+        spinner.classList.add('d-none');
+        if (!ok) throw new Error(data.error || 'Failed to create directory');
+        location.reload();
+    })
+    .catch(err => {
+        spinner.classList.add('d-none');
+        alertBox.classList.remove('d-none');
+        alertBox.innerText = err.message;
+    });
+}
+
+function submitUpload(e) {
+    e.preventDefault();
+    const fileInput = document.getElementById('uploadFileInput');
+    const targetDir = document.getElementById('uploadTargetDir').value;
+    const overwrite = document.getElementById('uploadOverwrite').checked;
+    const alertBox = document.getElementById('uploadAlert');
+    const spinner = document.getElementById('uploadBtnSpinner');
+
+    if (!fileInput.files || fileInput.files.length === 0) {
+        alertBox.classList.remove('d-none');
+        alertBox.innerText = 'Please select a file to upload.';
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('target_dir', targetDir);
+    formData.append('overwrite', overwrite ? 'true' : 'false');
+
+    alertBox.classList.add('d-none');
+    spinner.classList.remove('d-none');
+
+    fetch('/api/files/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(resp => resp.json().then(d => ({ ok: resp.ok, data: d })))
+    .then(({ ok, data }) => {
+        spinner.classList.add('d-none');
+        if (!ok) throw new Error(data.error || 'Upload failed');
+        location.reload();
+    })
+    .catch(err => {
+        spinner.classList.add('d-none');
+        alertBox.classList.remove('d-none');
+        alertBox.innerText = err.message;
+    });
+}
+
+function openCopyModal(srcPath, currentDir) {
+    document.getElementById('copySourcePath').value = srcPath;
+    document.getElementById('copyDestDir').value = currentDir;
+    document.getElementById('copyNewName').value = '';
+    document.getElementById('copyOverwrite').checked = false;
+    document.getElementById('copyAlert').classList.add('d-none');
+    new bootstrap.Modal(document.getElementById('copyModal')).show();
+}
+
+function submitCopy(e) {
+    e.preventDefault();
+    const sourcePath = document.getElementById('copySourcePath').value;
+    const destDir = document.getElementById('copyDestDir').value.trim();
+    const newName = document.getElementById('copyNewName').value.trim();
+    const overwrite = document.getElementById('copyOverwrite').checked;
+    const alertBox = document.getElementById('copyAlert');
+    const spinner = document.getElementById('copyBtnSpinner');
+
+    alertBox.classList.add('d-none');
+    spinner.classList.remove('d-none');
+
+    fetch('/api/files/copy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            source_path: sourcePath,
+            dest_dir: destDir,
+            new_name: newName || null,
+            overwrite: overwrite
+        })
+    })
+    .then(resp => resp.json().then(d => ({ ok: resp.ok, data: d })))
+    .then(({ ok, data }) => {
+        spinner.classList.add('d-none');
+        if (!ok) throw new Error(data.error || 'Copy failed');
+        location.reload();
+    })
+    .catch(err => {
+        spinner.classList.add('d-none');
+        alertBox.classList.remove('d-none');
+        alertBox.innerText = err.message;
+    });
+}
+
+function openRenameModal(srcPath, currentName) {
+    document.getElementById('renameSourcePath').value = srcPath;
+    document.getElementById('renameNewName').value = currentName;
+    document.getElementById('renameAlert').classList.add('d-none');
+    new bootstrap.Modal(document.getElementById('renameModal')).show();
+}
+
+function submitRename(e) {
+    e.preventDefault();
+    const sourcePath = document.getElementById('renameSourcePath').value;
+    const newName = document.getElementById('renameNewName').value.trim();
+    const alertBox = document.getElementById('renameAlert');
+    const spinner = document.getElementById('renameBtnSpinner');
+
+    alertBox.classList.add('d-none');
+    spinner.classList.remove('d-none');
+
+    fetch('/api/files/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_path: sourcePath, new_name: newName })
+    })
+    .then(resp => resp.json().then(d => ({ ok: resp.ok, data: d })))
+    .then(({ ok, data }) => {
+        spinner.classList.add('d-none');
+        if (!ok) throw new Error(data.error || 'Rename failed');
+        location.reload();
+    })
+    .catch(err => {
+        spinner.classList.add('d-none');
+        alertBox.classList.remove('d-none');
+        alertBox.innerText = err.message;
+    });
+}
+
+function openDeleteModal(path, name, type) {
+    currentDeletePath = path;
+    currentDeleteName = name;
+    currentDeleteType = type;
+
+    document.getElementById('deleteTargetPath').innerText = path;
+    document.getElementById('deleteTargetType').innerText = type;
+    document.getElementById('deleteAlert').classList.add('d-none');
+
+    const confirmBlock = document.getElementById('deleteDirectoryConfirmBlock');
+    const deleteBtn = document.getElementById('deleteSubmitBtn');
+    const confirmInput = document.getElementById('deleteConfirmInput');
+
+    if (type === 'DIRECTORY') {
+        confirmBlock.classList.remove('d-none');
+        document.getElementById('deleteExpectedName').innerText = name;
+        confirmInput.value = '';
+        deleteBtn.disabled = true;
+    } else {
+        confirmBlock.classList.add('d-none');
+        deleteBtn.disabled = false;
+    }
+
+    new bootstrap.Modal(document.getElementById('deleteModal')).show();
+}
+
+function checkDeleteConfirmation() {
+    const inputVal = document.getElementById('deleteConfirmInput').value.trim();
+    const deleteBtn = document.getElementById('deleteSubmitBtn');
+    deleteBtn.disabled = (inputVal !== currentDeleteName);
+}
+
+function submitDelete(e) {
+    e.preventDefault();
+    const isDir = (currentDeleteType === 'DIRECTORY');
+    const confirmVal = isDir ? document.getElementById('deleteConfirmInput').value.trim() : null;
+    const alertBox = document.getElementById('deleteAlert');
+    const spinner = document.getElementById('deleteBtnSpinner');
+
+    alertBox.classList.add('d-none');
+    spinner.classList.remove('d-none');
+
+    fetch('/api/files/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            path: currentDeletePath,
+            recursive: isDir,
+            confirmation_name: confirmVal
+        })
+    })
+    .then(resp => resp.json().then(d => ({ ok: resp.ok, data: d })))
+    .then(({ ok, data }) => {
+        spinner.classList.add('d-none');
+        if (!ok) throw new Error(data.error || 'Delete failed');
+        location.reload();
+    })
+    .catch(err => {
+        spinner.classList.add('d-none');
+        alertBox.classList.remove('d-none');
+        alertBox.innerText = err.message;
+    });
+}
+</script>
+{% endblock %}
