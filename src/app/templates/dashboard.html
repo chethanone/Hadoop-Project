@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard — Hadoop{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div><p class="eyebrow">CLUSTER OVERVIEW</p><h1>Dashboard</h1><p class="page-subtitle">Live storage telemetry and recent MapReduce activity.</p></div>
+  <button class="btn btn-ghost" id="refreshDashboard" type="button"><i class="bi bi-arrow-clockwise me-2"></i>Refresh data</button>
+</section>
+<div id="dashboardNotice" class="notice d-none" role="status"></div>
+<section class="metric-grid" aria-label="HDFS metrics">
+  <article class="metric-card"><div class="metric-top"><span>HDFS capacity</span><i class="bi bi-hdd-stack"></i></div><div class="metric-value" id="metricTotal">Loading…</div><div class="metric-foot">Configured storage</div></article>
+  <article class="metric-card"><div class="metric-top"><span>Storage used</span><i class="bi bi-database"></i></div><div class="metric-value" id="metricUsed">Loading…</div><div class="metric-foot" id="metricUsedPct">Waiting for NameNode data</div></article>
+  <article class="metric-card"><div class="metric-top"><span>Storage available</span><i class="bi bi-pie-chart"></i></div><div class="metric-value" id="metricFree">Loading…</div><div class="metric-foot">Capacity minus used space</div></article>
+  <article class="metric-card"><div class="metric-top"><span>Recent jobs</span><i class="bi bi-cpu"></i></div><div class="metric-value" id="metricJobs">—</div><div class="metric-foot">Jobs in this app session</div></article>
+</section>
+<section class="dashboard-grid">
+  <article class="panel">
+    <div class="panel-heading"><div><h2>Storage utilization</h2><p>Used space compared with free space</p></div><span class="live-label"><span class="live-dot"></span> API-backed</span></div>
+    <div class="storage-layout"><div class="chart-wrap"><canvas id="hdfsStorageChart" aria-label="HDFS used and free storage chart"></canvas><div class="chart-center"><strong id="storagePercent">—</strong><span>used</span></div></div><div class="storage-legend"><div><span class="legend-dot used"></span><div><strong>Used storage</strong><small id="legendUsed">Waiting for data</small></div></div><div><span class="legend-dot free"></span><div><strong>Free storage</strong><small id="legendFree">Waiting for data</small></div></div></div></div>
+    <div id="hdfsStorageInfo" class="panel-foot">Connecting to HDFS…</div>
+  </article>
+  <article class="panel">
+    <div class="panel-heading"><div><h2>Recent MapReduce jobs</h2><p>Jobs submitted during this application session</p></div><a class="text-link" href="{{ url_for('mapreduce.index') }}">Open lab <i class="bi bi-arrow-up-right"></i></a></div>
+    <div id="recentJobs" class="jobs-list" aria-live="polite"><div class="empty-state"><i class="bi bi-hourglass-split"></i><strong>Loading jobs</strong><span>Checking the job registry…</span></div></div>
+  </article>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

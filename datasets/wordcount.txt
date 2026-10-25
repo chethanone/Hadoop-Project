@@ -1,0 +1,3 @@
+﻿Hadoop is useful for processing data.
+Hadoop uses MapReduce to process large data.
+MapReduce groups data and calculates results.

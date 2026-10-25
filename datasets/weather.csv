@@ -1,0 +1,5 @@
+Year,Month,StationID,MaxTemp,MinTemp,Precipitation
+2024,1,S1,20,10,0.0
+2024,2,S1,22,12,1.5
+2024,1,S2,30,20,0.0
+2024,2,S2,32,22,2.0

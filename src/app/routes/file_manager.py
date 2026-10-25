@@ -4,6 +4,8 @@ Exposes endpoints for interactive directory browsing, file uploads,
 downloads, directory creation, copy, rename, and deletion with safety controls.
 """
 
+import subprocess
+
 from flask import (
     Blueprint,
     Response,
@@ -40,6 +42,8 @@ def file_manager_view():
     """Renders the primary HDFS File Manager interface."""
     path = request.args.get("path", "/user/chethan")
     service = get_hdfs_service()
+
+    # Keep GET navigation read-only and fast; setup/job routes create workspace folders.
 
     try:
         data = service.browse_directory(path)

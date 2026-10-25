@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import urllib.parse
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -634,28 +635,38 @@ class HadoopAdapter:
         except Exception as exc:
             logger.warning("WebHDFS preview failed (%s), attempting safe CLI fallback...", exc)
 
-        # 2. Fallback: Safe CLI cat execution
+        # 2. Bounded CLI fallback. Read only max_bytes + 1 from stdout so a large
+        # HDFS file cannot be copied wholesale into the Flask process memory.
         try:
-            code, stdout, stderr = self.run_wsl_command([
-                self.config.HDFS_BIN_WSL, "dfs", "-cat", sanitized_path
-            ], timeout=10)
-            if code == 0:
-                lines = stdout.splitlines()
-                truncated = False
+            command = ["wsl.exe", "-d", self.config.WSL_DISTRO, "--",
+                       self.config.HDFS_BIN_WSL, "dfs", "-cat", sanitized_path]
+            proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            raw_content = proc.stdout.read(max_bytes + 1) if proc.stdout else b""
+            truncated = len(raw_content) > max_bytes
+            if truncated:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=2)
+            else:
+                proc.wait(timeout=10)
+            stderr = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
+
+            if proc.returncode == 0 or truncated:
+                raw_content = raw_content[:max_bytes]
+                content = raw_content.decode("utf-8", errors="replace")
+                lines = content.splitlines()
                 if len(lines) > max_lines:
                     lines = lines[:max_lines]
                     truncated = True
-
                 content = "\n".join(lines)
-                if len(content.encode("utf-8")) > max_bytes:
-                    content = content.encode("utf-8")[:max_bytes].decode("utf-8", errors="replace")
-                    truncated = True
-
                 return {
                     "status": "Online",
                     "path": sanitized_path,
                     "content": content,
-                    "bytes_read": len(content.encode("utf-8")),
+                    "bytes_read": len(raw_content),
                     "line_count": len(lines),
                     "truncated": truncated,
                     "source": "CLI",
@@ -669,7 +680,7 @@ class HadoopAdapter:
                 "line_count": 0,
                 "truncated": False,
                 "source": "CLI",
-                "error": stderr.strip() or f"CLI returned code {code}"
+                "error": stderr.strip() or f"CLI returned code {proc.returncode}"
             }
         except Exception as exc:
             return {
@@ -692,21 +703,34 @@ class HadoopAdapter:
         Executes a complete sweep of all Hadoop and host subsystems.
         Returns granular status indicators and remediation guidance.
         """
+        # These probes are independent. Running them concurrently avoids making
+        # page rendering wait for the sum of every HTTP and WSL timeout.
+        checks = {
+            "wsl": self.check_wsl_status,
+            "hadoop_cli": self.check_hadoop_cli,
+            "jps": self.check_jps_processes,
+            "namenode_jmx": self.get_namenode_jmx,
+            "datanode_web": self.check_datanode_status,
+            "yarn_rm": self.get_yarn_cluster_info,
+            "yarn_metrics": self.get_yarn_cluster_metrics,
+            "hdfs_root": lambda: self.list_hdfs_directory("/"),
+            "hdfs_user": lambda: self.list_hdfs_directory(self.config.DEFAULT_HDFS_USER_DIR),
+        }
         results = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "host_os": "Windows (x86_64)",
             "python_version": os.sys.version.split()[0],
-            "wsl": self.check_wsl_status(),
-            "hadoop_cli": self.check_hadoop_cli(),
-            "jps": self.check_jps_processes(),
-            "namenode_jmx": self.get_namenode_jmx(),
-            "datanode_web": self.check_datanode_status(),
-            "yarn_rm": self.get_yarn_cluster_info(),
-            "yarn_metrics": self.get_yarn_cluster_metrics(),
-            "hdfs_root": self.list_hdfs_directory("/"),
-            "hdfs_user": self.list_hdfs_directory(self.config.DEFAULT_HDFS_USER_DIR),
-            "remediation": []
+            "remediation": [],
         }
+        with ThreadPoolExecutor(max_workers=min(9, len(checks))) as pool:
+            futures = {pool.submit(fn): name for name, fn in checks.items()}
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    results[name] = future.result()
+                except Exception as exc:
+                    logger.exception("Diagnostic probe %s failed", name)
+                    results[name] = {"status": "Error", "error": str(exc)}
 
         # Build active remediation recommendations if any subsystem is offline
         if results["wsl"]["status"] != "Online":

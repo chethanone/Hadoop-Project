@@ -1,0 +1,145 @@
+{% extends 'base.html' %}
+{% block title %}MapReduce Lab{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div>
+    <h1>MapReduce Lab</h1>
+    <p class="page-subtitle">Run Hadoop jobs and inspect their HDFS results.</p>
+  </div>
+</section>
+
+
+<div class="lab-grid">
+  <section class="panel form-panel">
+    <div class="panel-heading">
+      <div>
+        <h2>Configure job</h2>
+        <p>Select the algorithm and HDFS input, then run the job.</p>
+      </div>
+    </div>
+    <form id="jobForm" class="job-form">
+      <div class="field"><label for="jobType">Algorithm</label><select id="jobType" class="form-select" name="job"
+          required>
+          <option value="WordCount">Word Count</option>
+          <option value="MatrixMultiplication">Matrix Multiplication</option>
+          <option value="WeatherAnalysis">Weather Analysis</option>
+        </select></div>
+      <div id="algorithmInfo" class="algorithm-info" aria-live="polite"></div>
+      <div class="field"><label for="inputPath">HDFS input path</label>
+        <div class="input-path-row"><input id="inputPath" type="text" class="form-control" name="input"
+            value="/user/chethan/inputs" required autocomplete="off" spellcheck="false">
+          <button id="browseInputBtn" class="btn btn-outline-secondary" type="button"><i class="bi bi-folder2-open me-2"></i>Browse HDFS</button>
+        </div>
+        <small class="field-help">Select a file directly here; no need to leave the MapReduce page.</small>
+      </div>
+      <section id="inputBrowser" class="input-browser d-none" aria-label="Choose an HDFS input">
+        <div class="input-browser-toolbar"><strong id="browserPath">/user/chethan/inputs</strong>
+          <div><button id="browserUpBtn" type="button" class="btn btn-sm btn-outline-secondary">Up</button>
+            <button id="browserRefreshBtn" type="button" class="btn btn-sm btn-outline-secondary">Refresh</button>
+            <button id="browserCloseBtn" type="button" class="btn btn-sm btn-outline-secondary">Close</button></div>
+        </div>
+        <div id="browserEntries" class="input-browser-entries"><p class="field-help">Open Browse HDFS to list inputs.</p></div>
+        <p id="browserMessage" class="field-help mb-0" aria-live="polite"></p>
+      </section>
+      <div class="sample-setup">
+        <div><strong>Random sample data</strong><small>Generate fresh Word Count, matrix and weather inputs on every click. Existing HDFS files remain untouched.</small></div><button id="prepareSamplesBtn" type="button"
+          class="btn btn-outline-secondary"><i class="bi bi-shuffle me-2"></i>Generate random samples</button>
+      </div>
+      <div class="quick-paths"><span>Samples:</span><button type="button" class="path-chip"
+          data-job="WordCount">Word Count sample</button><button type="button" class="path-chip"
+          data-job="MatrixMultiplication">Matrix sample</button><button type="button" class="path-chip"
+          data-job="WeatherAnalysis">Weather sample</button></div>
+      <div class="field-row">
+        <div class="field"><label for="outputName">Result label</label><input id="outputName" type="text"
+            class="form-control" name="output" value="wordcount" pattern="[A-Za-z0-9_-]+" maxlength="48" required><small
+            class="field-help">A unique folder is created under <code>/user/chethan/outputs/</code>.</small></div>
+        <div class="field reducer-field"><label for="reducers">Reducers</label><input id="reducers" type="number"
+            class="form-control" name="reducers" min="1" max="8" value="1" required><small
+            class="field-help">1–8</small></div>
+      </div>
+      <button id="submitJobBtn" type="submit" class="btn btn-action submit-button"><i
+          class="bi bi-play-fill me-2"></i>Run job</button>
+      <div id="submitFeedback" class="feedback-slot" role="status" aria-live="polite"></div>
+    </form>
+    <div class="safety-note"><i class="bi bi-shield-check"></i><span>Input is preserved. Each run writes to a new HDFS output directory.</span></div>
+  </section>
+  <section class="panel details-panel">
+    <div class="panel-heading">
+      <div>
+        <h2>Execution monitor</h2>
+        <p>Job state, YARN progress when available, and logs.</p>
+      </div><span id="jobStatus" class="status-pill status-idle">Not started</span>
+    </div>
+    <div id="jobEmptyState" class="empty-state job-empty">
+      <div class="empty-icon"><i class="bi bi-activity"></i></div><strong>Ready to run</strong><span>Submit one of the
+        three algorithms to see live execution details.</span>
+    </div>
+    <div id="jobDetails" class="job-detail-content d-none">
+      <div class="job-id-row"><span>Job ID</span><code id="jobId"></code><button id="copyJobId" class="icon-button"
+          type="button" title="Copy job ID" aria-label="Copy job ID"><i class="bi bi-copy"></i></button></div>
+      <div class="stage-summary" id="stageSummary">
+        <div><span class="stage-dot"></span><span id="stageText">Waiting for Hadoop</span></div><small>Stage labels are
+          a workflow guide; progress percentage is shown only when reported by YARN.</small>
+      </div>
+      <div class="progress-section">
+        <div class="progress-label"><span>YARN application progress</span><strong id="progressLabel">Waiting for
+            application ID</strong></div>
+        <div class="progress-track">
+          <div id="progressBar" class="progress-fill" style="width:0%"></div>
+        </div><small id="progressHint">No progress is fabricated; the value comes from ResourceManager.</small>
+      </div>
+      <div class="result-path"><span>HDFS output folder</span><code id="outputPath">—</code><button id="copyOutputPath"
+          class="icon-button" type="button" title="Copy output path" aria-label="Copy output path"><i
+            class="bi bi-copy"></i></button></div>
+      <div class="log-heading">
+        <h3>Execution log</h3><span class="live-label"><span class="live-dot"></span> Live status</span>
+      </div>
+      <pre id="jobLog" class="terminal-body">Waiting for logs…</pre>
+      <div class="result-actions"><button id="fetchResultBtn" type="button" class="btn btn-action d-none"><i
+            class="bi bi-table me-2"></i>Load visualized results</button></div>
+
+      <section id="visualResult" class="visual-result d-none">
+        <div class="result-title-row">
+          <div>
+            <h3 id="resultHeading">Job results</h3>
+            <p id="resultSummary" class="field-help"></p>
+          </div>
+          <button id="toggleRaw" type="button" class="btn btn-outline-secondary btn-sm">
+            Show raw output
+          </button>
+        </div>
+
+        <div class="io-comparison">
+          <article class="io-panel">
+            <div class="io-panel-heading">
+              <div>
+                <h3><i class="bi bi-file-earmark-text"></i> Input data</h3>
+                <p>Original data read from HDFS</p>
+              </div>
+              <span class="io-tag">INPUT</span>
+            </div>
+            <code id="inputPathDisplay" class="io-path">—</code>
+            <pre id="inputPreview" class="io-preview">Input preview will appear here.</pre>
+            <p id="inputPreviewNote" class="field-help"></p>
+          </article>
+
+          <article class="io-panel">
+            <div class="io-panel-heading">
+              <div>
+                <h3><i class="bi bi-bar-chart-line"></i> Processed output</h3>
+                <p>Actual reducer results from HDFS</p>
+              </div>
+              <span class="io-tag">OUTPUT</span>
+            </div>
+            <code id="resultPathDisplay" class="io-path">—</code>
+            <div id="resultVisualization"></div>
+            <pre id="jobResult" class="result-output d-none"></pre>
+          </article>
+        </div>
+      </section>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/mapreduce.js', v='random-input-picker-20261025') }}"></script>{% endblock
+%}

@@ -17,8 +17,9 @@ def get_adapter() -> HadoopAdapter:
 
 @diagnostics_bp.route("/")
 def index():
-    """Root route redirecting to diagnostics view."""
-    return render_template("diagnostics.html")
+    """Root route redirects to the main dashboard."""
+    from flask import redirect, url_for
+    return redirect(url_for('dashboard.dashboard_view'))
 
 
 @diagnostics_bp.route("/diagnostics")

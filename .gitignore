@@ -40,3 +40,39 @@ dist/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Generated project artifacts
+.build/
+.pytest_cache/
+.runtime_samples/
+.temp_staging/
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Local runtime data
+instance/
+*.pid
+
+# Local secrets and machine-specific configuration
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime and generated files
+.runtime_samples/
+instance/
+*.pid
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Accidental generated file list
+/mapreduce-jobs.jar

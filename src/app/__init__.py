@@ -6,7 +6,7 @@ Initializes the Flask app, registers blueprints, and sets up template helpers.
 from flask import Flask, render_template
 
 from .config import Config, config_by_name
-from .routes import diagnostics_bp, file_manager_bp
+from .routes import diagnostics_bp, file_manager_bp, mapreduce_bp, dashboard_bp
 
 
 def format_bytes(size: int) -> str:
@@ -22,7 +22,10 @@ def format_bytes(size: int) -> str:
 
 def create_app(config_name: str = "default") -> Flask:
     """Creates and configures an instance of the Flask application."""
+    # Cache same-origin CSS/JS for a day; versioned assets are refreshed by
+    # the browser when the URL changes. This avoids revalidating on each page.
     app = Flask(__name__)
+    app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 86400
 
     # Load configuration
     if isinstance(config_name, str):
@@ -40,6 +43,8 @@ def create_app(config_name: str = "default") -> Flask:
     # Register blueprints
     app.register_blueprint(diagnostics_bp)
     app.register_blueprint(file_manager_bp)
+    app.register_blueprint(mapreduce_bp)
+    app.register_blueprint(dashboard_bp)
 
     # Global error handlers
     @app.errorhandler(404)

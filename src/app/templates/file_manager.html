@@ -8,9 +8,9 @@
     <div class="col-12">
         <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
             <div>
-                <h1 class="h3 mb-1 fw-bold">HDFS File Explorer</h1>
+                <h1 class="h3 mb-1 fw-bold">HDFS Workspace</h1>
                 <p class="text-secondary mb-0">
-                    Real-time filesystem management for Apache Hadoop 3.5.0 on <span class="font-mono text-info">hdfs://localhost:9000</span>
+                    Manage input datasets and MapReduce output files in Apache Hadoop 3.5.0 on <span class="font-mono text-info">hdfs://localhost:9000</span>
                 </p>
             </div>
             <!-- Action Toolbar -->
@@ -59,10 +59,10 @@
 
                 <!-- Quick Jump Shortcut Pills -->
                 <div class="d-flex align-items-center gap-2 small">
-                    <span class="text-muted d-none d-md-inline">Quick:</span>
-                    <a href="{{ url_for('file_manager.file_manager_view', path='/user/chethan') }}" class="badge bg-dark border border-secondary text-secondary text-decoration-none">/user/chethan</a>
-                    <a href="{{ url_for('file_manager.file_manager_view', path='/tmp') }}" class="badge bg-dark border border-secondary text-secondary text-decoration-none">/tmp</a>
-                    <a href="{{ url_for('file_manager.file_manager_view', path='/') }}" class="badge bg-dark border border-secondary text-secondary text-decoration-none">/ (Root)</a>
+                    <span class="text-muted d-none d-md-inline">Workspace:</span>
+                    <a href="{{ url_for('file_manager.file_manager_view', path='/user/chethan/inputs') }}" class="badge bg-dark border border-secondary text-secondary text-decoration-none"><i class="bi bi-folder2-open me-1"></i>Inputs</a>
+                    <a href="{{ url_for('file_manager.file_manager_view', path='/user/chethan/outputs') }}" class="badge bg-dark border border-secondary text-secondary text-decoration-none"><i class="bi bi-bar-chart-line me-1"></i>Outputs</a>
+                    <a href="{{ url_for('file_manager.file_manager_view', path='/user/chethan') }}" class="badge bg-dark border border-secondary text-secondary text-decoration-none">All user files</a>
                 </div>
             </div>
         </div>
@@ -81,6 +81,12 @@
         </div>
     </div>
     {% endif %}
+
+    <div class="col-12">
+        <div class="alert alert-info border-info-subtle bg-info-subtle text-info-emphasis rounded-3 py-2 mb-0">
+            <strong>Workspace layout:</strong> upload datasets into <code>/user/chethan/inputs</code>. New MapReduce results are saved under <code>/user/chethan/outputs</code>. Existing folders and files are kept in place.
+        </div>
+    </div>
 
     <!-- Directory Contents Table -->
     <div class="col-12">
